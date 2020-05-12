@@ -1,0 +1,10 @@
+apiVersion: app.example.com/v1alpha1
+kind: PodSet
+metadata:
+  name: golang-helloworld
+  namespace: podset-operator-group
+spec:
+  replicas: 2
+  version: 0.0.4
+  imageLocation: gcr.io/tools-poc/
+  imagePullPolicy: Always

@@ -4,7 +4,7 @@ metadata:
   name: golang-helloworld
   namespace: podset-operator-group
 spec:
-  replicas: 2
-  version: 0.0.4
+  replicas: 1
+  version: 0.0.2
   imageLocation: gcr.io/tools-poc/
   imagePullPolicy: Always

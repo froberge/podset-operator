@@ -21,12 +21,23 @@ type PodSetSpec struct {
 
 // PodSetStatus defines the observed state of PodSet
 type PodSetStatus struct {
-	PodNames         []string `json:"podNames"`
-	DeploymentStatus string   `json:"deploymentStatus"`
+	PodNames           []string   `json:"podNames,omitempty"`
+	CurrentDeployment  Deployment `json:"currentDeployement,omitempty"`
+	PreviousDeployment Deployment `json:"previousDeployement,omitempty"`
 
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "operator-sdk generate k8s" to regenerate code after modifying this file
 	// Add custom validation using kubebuilder tags: https://book-v1.book.kubebuilder.io/beyond_basics/generating_crd.html
+}
+
+// Deployment contain the value necessary to make a deployment
+type Deployment struct {
+	Name            string `json:"name"`
+	Replicas        int32  `json:"replicas"`
+	Version         string `json:"version"`
+	ImageLocation   string `json:"imageLocation"`
+	ImagePullPolicy string `json:"pullPolicy"`
+	Err             string `json:"error"`
 }
 
 // +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object

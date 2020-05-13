@@ -81,24 +81,6 @@ type ReconcilePodSet struct {
 	scheme *runtime.Scheme
 }
 
-type deployment struct {
-	name          string
-	replicas      int32
-	version       string
-	imageLocation string
-	pullPolicy    string
-	err           bool
-}
-
-// DeployedState define the status of a deployment
-type deployedState struct {
-	state   string
-	message string
-}
-
-var previousDeployment deployment
-var currentDeployment deployment
-
 // Reconcile reads that state of the cluster for a PodSet object and makes changes based on the state read
 // and what is in the PodSet.Spec
 // TODO(user): Modify this Reconcile function to implement your Controller logic.  This example creates
@@ -125,36 +107,34 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 		return reconcile.Result{}, err
 	}
 
-	var isPreviousEqualSpec = compareDeploymentToSpec(podSet, previousDeployment)
+	var isPreviousEqualSpec = compareDeploymentToSpec(podSet, &podSet.Status.PreviousDeployment)
 
-	if !compareDeploymentToSpec(podSet, currentDeployment) &&
+	if !compareDeploymentToSpec(podSet, &podSet.Status.CurrentDeployment) &&
 		(!isPreviousEqualSpec ||
-			(isPreviousEqualSpec && previousDeployment.err == false)) {
+			(isPreviousEqualSpec && podSet.Status.PreviousDeployment.Err == "")) {
 
-		previousDeployment = currentDeployment
-		currentDeployment = deployment{
-			name:          podSet.Name,
-			replicas:      podSet.Spec.Replicas,
-			version:       podSet.Spec.Version,
-			imageLocation: podSet.Spec.ImageLocation,
-			pullPolicy:    podSet.Spec.ImagePullPolicy,
-			err:           false,
+		podSet.Status.PreviousDeployment = copyDeployment(&podSet.Status.CurrentDeployment)
+
+		var cd = v1alpha1.Deployment{
+			Name:            podSet.Name,
+			Replicas:        podSet.Spec.Replicas,
+			Version:         podSet.Spec.Version,
+			ImageLocation:   podSet.Spec.ImageLocation,
+			ImagePullPolicy: podSet.Spec.ImagePullPolicy,
+			Err:             "",
 		}
+		podSet.Status.CurrentDeployment = cd
 
-		if len(podSet.Status.DeploymentStatus) > 0 {
-			podSet.Status.DeploymentStatus = ""
-
-			err := r.client.Status().Update(context.TODO(), podSet)
-			if err != nil {
-				reqLogger.Error(err, "failed to update the podSet")
-				return reconcile.Result{}, err
-			}
+		err := r.client.Status().Update(context.TODO(), podSet)
+		if err != nil {
+			reqLogger.Error(err, "failed to update the podSet")
+			return reconcile.Result{}, err
 		}
 
 		return reconcile.Result{Requeue: true}, nil
 	}
 
-	if len(currentDeployment.version) == 0 {
+	if len(podSet.Status.CurrentDeployment.Version) == 0 {
 		return reconcile.Result{}, nil
 	}
 
@@ -186,7 +166,7 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 		}
 
 		// Check the version running, if not right version delete the pod
-		if pod.GetLabels()["version"] != currentDeployment.version {
+		if pod.GetLabels()["version"] != podSet.Status.CurrentDeployment.Version {
 			err := deletePod(r, &reqLogger, &pod)
 			if err != nil {
 				reqLogger.Error(err, "failed to delete a pod with previous version")
@@ -206,24 +186,16 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 
 							// Keep the version of the previous deployment
 							// Rollback the version
-							tmpDep := deployment{
-								name:          previousDeployment.name,
-								replicas:      previousDeployment.replicas,
-								version:       previousDeployment.version,
-								imageLocation: previousDeployment.imageLocation,
-								pullPolicy:    previousDeployment.pullPolicy,
-								err:           previousDeployment.err,
-							}
+							tmpDeployment := copyDeployment(&podSet.Status.PreviousDeployment)
 
 							// The previous deployment because the current deployment with and err
-							previousDeployment = currentDeployment
-							previousDeployment.err = true
-
-							// Current deployment become the previous deployment that was successfull.
-							currentDeployment = tmpDep
+							previousDeployment := copyDeployment(&podSet.Status.CurrentDeployment)
+							previousDeployment.Err = containerStatus.State.Waiting.Reason
+							podSet.Status.PreviousDeployment = previousDeployment
 
 							// Update the state of the deployment
-							podSet.Status.DeploymentStatus = "ROLLBACK"
+							podSet.Status.CurrentDeployment = tmpDeployment
+
 							r.client.Status().Update(context.TODO(), podSet)
 							return reconcile.Result{}, nil
 						}
@@ -235,12 +207,12 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 		}
 	}
 
-	reqLogger.Info("Checking podset - ", "expected replicas", currentDeployment.replicas, "Pod.Names", existingPodNames)
+	reqLogger.Info("Checking podset - ", "expected replicas", podSet.Status.CurrentDeployment.Replicas, "Pod.Names", existingPodNames)
 
 	// Scale down number of replicas if to many node.
-	if int32(len(existingPodNames)) > currentDeployment.replicas {
+	if int32(len(existingPodNames)) > podSet.Status.CurrentDeployment.Replicas {
 		// Delete a pod since their is to many
-		reqLogger.Info("Deleting a pod in the podset", "expecting replicas", currentDeployment.replicas, "Pod.Names", existingPodNames)
+		reqLogger.Info("Deleting a pod in the podset", "expecting replicas", podSet.Status.CurrentDeployment.Replicas, "Pod.Names", existingPodNames)
 		err = deletePod(r, &reqLogger, &existingPods.Items[0])
 
 		if err != nil {
@@ -250,10 +222,10 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 	}
 
 	// Scale Up Pods
-	if int32(len(existingPodNames)) < currentDeployment.replicas {
+	if int32(len(existingPodNames)) < podSet.Status.CurrentDeployment.Replicas {
 		// create a new pod & Set the PodSet as the owner and controller.
-		reqLogger.Info("Adding a pod in the podset", "expected replicas", currentDeployment.replicas, "Pod.Names", existingPodNames)
-		pod := createNewPod(currentDeployment, podSet.Namespace)
+		reqLogger.Info("Adding a pod in the podset", "expected replicas", podSet.Status.CurrentDeployment.Replicas, "Pod.Names", existingPodNames)
+		pod := createNewPod(&podSet.Status.CurrentDeployment, podSet.Namespace)
 		if err := controllerutil.SetControllerReference(podSet, pod, r.scheme); err != nil {
 			reqLogger.Error(err, "unable to set owner reference on new pod")
 			return reconcile.Result{}, err
@@ -282,24 +254,24 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 }
 
 // Instantiate a new pod with the proper information.
-func createNewPod(currentDeployment deployment, namespace string) *corev1.Pod {
+func createNewPod(currentDeployment *v1alpha1.Deployment, namespace string) *corev1.Pod {
 
 	labels := map[string]string{
-		"app":     currentDeployment.name,
-		"version": currentDeployment.version,
+		"app":     currentDeployment.Name,
+		"version": currentDeployment.Version,
 	}
 	return &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      currentDeployment.name + "-" + currentDeployment.version + "-pod" + strconv.Itoa(rand.Intn(100)),
+			Name:      currentDeployment.Name + "-" + currentDeployment.Version + "-pod" + strconv.Itoa(rand.Intn(100)),
 			Namespace: namespace,
 			Labels:    labels,
 		},
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Name:            currentDeployment.name,
-					Image:           currentDeployment.imageLocation + currentDeployment.name + ":" + currentDeployment.version,
-					ImagePullPolicy: corev1.PullPolicy(currentDeployment.pullPolicy),
+					Name:            currentDeployment.Name,
+					Image:           currentDeployment.ImageLocation + currentDeployment.Name + ":" + currentDeployment.Version,
+					ImagePullPolicy: corev1.PullPolicy(currentDeployment.ImagePullPolicy),
 				},
 			},
 		},
@@ -312,14 +284,28 @@ func deletePod(r *ReconcilePodSet, reqLogger *logr.Logger, pod *corev1.Pod) erro
 }
 
 // Compare if two deployment are the same
-func compareDeploymentToSpec(podSet *v1alpha1.PodSet, deployment deployment) bool {
+func compareDeploymentToSpec(podSet *v1alpha1.PodSet, deployment *v1alpha1.Deployment) bool {
 
-	if podSet.Name != deployment.name {
+	if podSet.Name != deployment.Name {
 		return false
 	}
 
-	return podSet.Spec.Version == deployment.version &&
-		podSet.Spec.Replicas == deployment.replicas &&
-		podSet.Spec.ImageLocation == deployment.imageLocation &&
-		podSet.Spec.ImagePullPolicy == deployment.pullPolicy
+	return podSet.Spec.Version == deployment.Version &&
+		podSet.Spec.Replicas == deployment.Replicas &&
+		podSet.Spec.ImageLocation == deployment.ImageLocation &&
+		podSet.Spec.ImagePullPolicy == deployment.ImagePullPolicy
+}
+
+// Copy Deployment is a way to recreate a new deployment with the same values
+func copyDeployment(deployment *v1alpha1.Deployment) v1alpha1.Deployment {
+	var newDeployment = v1alpha1.Deployment{
+		Name:            deployment.Name,
+		Replicas:        deployment.Replicas,
+		Version:         deployment.Version,
+		ImageLocation:   deployment.ImageLocation,
+		ImagePullPolicy: deployment.ImagePullPolicy,
+		Err:             deployment.Err,
+	}
+
+	return newDeployment
 }

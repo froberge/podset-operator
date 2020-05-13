@@ -49,15 +49,58 @@ spec:
         status:
           description: PodSetStatus defines the observed state of PodSet
           properties:
-            deploymentStatus:
-              type: string
+            currentDeployement:
+              description: Deployment contain the value necessary to make a deployment
+              properties:
+                error:
+                  type: string
+                imageLocation:
+                  type: string
+                name:
+                  type: string
+                pullPolicy:
+                  type: string
+                replicas:
+                  format: int32
+                  type: integer
+                version:
+                  type: string
+              required:
+              - error
+              - imageLocation
+              - name
+              - pullPolicy
+              - replicas
+              - version
+              type: object
             podNames:
               items:
                 type: string
               type: array
-          required:
-          - deploymentStatus
-          - podNames
+            previousDeployement:
+              description: Deployment contain the value necessary to make a deployment
+              properties:
+                error:
+                  type: string
+                imageLocation:
+                  type: string
+                name:
+                  type: string
+                pullPolicy:
+                  type: string
+                replicas:
+                  format: int32
+                  type: integer
+                version:
+                  type: string
+              required:
+              - error
+              - imageLocation
+              - name
+              - pullPolicy
+              - replicas
+              - version
+              type: object
           type: object
       type: object
   version: v1alpha1

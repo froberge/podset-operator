@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: podset-operator
+  namespace: podset-operator-group
 spec:
   replicas: 1
   selector:
@@ -22,6 +23,7 @@ spec:
           imagePullPolicy: Always
           env:
             - name: WATCH_NAMESPACE
+#              value: ""
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace

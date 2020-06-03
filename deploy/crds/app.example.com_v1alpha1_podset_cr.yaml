@@ -1,10 +1,33 @@
 apiVersion: app.example.com/v1alpha1
 kind: PodSet
 metadata:
-  name: golang-helloworld
+  name: podsetlogger
   namespace: podset-operator-group
 spec:
-  replicas: 1
-  version: 0.0.2
-  imageLocation: gcr.io/tools-poc/
-  imagePullPolicy: Always
+  namespace: podset-operator-group
+  podsetlogger-deployment-spec:
+    replicas: 1
+    version: 0.0.1
+    imagename: podset-logger
+    imagelocation: gcr.io/tools-poc/
+    imagepullpolicy: Always
+  podsetlogger-service-spec:
+    servicename: podset-logger-service
+    servicetype: LoadBalancer
+    selectors:
+      - name: app
+        value: podset-logger
+    ports:
+      port: 8080
+      targetport: 3001
+  watch:
+    - name: version
+      value: 0.0.1
+    - name: label
+      value: podset-logger
+    - name: replicas
+      value: '1'
+    - name: environment
+      value: "dev"
+    - name: content
+      value: "Salut Filipe"    

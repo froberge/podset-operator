@@ -11,7 +11,6 @@ gcloud container clusters create test-operator-fr --zone northamerica-northeast1
 echo "Create the required namespace"
 kubectl apply -f deploy/k8s/namespace.yaml
 
-
 # Create the custom resources on GCP
 echo "Create the CRD in the cluster"
 kubectl apply -f deploy/crds/app.example.com_podsets_crd.yaml
@@ -24,4 +23,4 @@ kubectl apply -f deploy/role_binding.yaml
 
 # deploy the custom resources
 #echo "Deploythe CRD"
-#kubectl apply -f deploy/operator.yaml
+kubectl apply -f deploy/operator.yaml

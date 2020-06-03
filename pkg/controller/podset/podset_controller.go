@@ -2,19 +2,19 @@ package podset
 
 import (
 	"context"
-	"math/rand"
 	"reflect"
-	"strconv"
+	"time"
 
-	"operator-framework/podset-operator/pkg/apis/app/v1alpha1"
+	tools "operator-framework/podset-operator/cmd/tools/podsetLogger"
+	utils "operator-framework/podset-operator/cmd/utils"
 	appv1alpha1 "operator-framework/podset-operator/pkg/apis/app/v1alpha1"
 
 	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -57,12 +57,22 @@ func add(mgr manager.Manager, r reconcile.Reconciler) error {
 		return err
 	}
 
-	// TODO(user): Modify this to be the types you create that are owned by the primary resource
 	// Watch for changes to secondary resource Pods and requeue the owner PodSet
 	err = c.Watch(&source.Kind{Type: &corev1.Pod{}}, &handler.EnqueueRequestForOwner{
 		IsController: true,
 		OwnerType:    &appv1alpha1.PodSet{},
 	})
+
+	err = c.Watch(&source.Kind{Type: &corev1.Service{}}, &handler.EnqueueRequestForOwner{
+		IsController: true,
+		OwnerType:    &appv1alpha1.PodSet{},
+	})
+
+	err = c.Watch(&source.Kind{Type: &corev1.ConfigMap{}}, &handler.EnqueueRequestForOwner{
+		IsController: true,
+		OwnerType:    &appv1alpha1.PodSet{},
+	})
+
 	if err != nil {
 		return err
 	}
@@ -107,20 +117,41 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 		return reconcile.Result{}, err
 	}
 
-	var isPreviousEqualSpec = compareDeploymentToSpec(podSet, &podSet.Status.PreviousDeployment)
+	// First make sure we have the Configuration for the Pod to work
+	// Deal with the required ConfigMap
+	existingPodsetConfigMap, podSetConfigMap := tools.GetConfigMap(podSet)
+	err = r.client.Get(context.TODO(), types.NamespacedName{Name: podSetConfigMap.Name, Namespace: podSetConfigMap.Namespace}, existingPodsetConfigMap)
 
-	if !compareDeploymentToSpec(podSet, &podSet.Status.CurrentDeployment) &&
+	if err != nil {
+		if errors.IsNotFound(err) {
+			reqLogger.Info("Create Config Map")
+			err = r.client.Create(context.TODO(), podSetConfigMap)
+			if err != nil {
+				return reconcile.Result{}, err
+			}
+
+			podSet.Status.Watch = podSet.Spec.Watch
+			r.client.Status().Update(context.TODO(), podSet)
+		}
+
+		t := time.Duration(10)
+		return reconcile.Result{RequeueAfter: time.Second * t}, err
+	}
+
+	var isPreviousEqualSpec = tools.CompareDeploymentToSpec(&podSet.Spec.PodSetLogger, &podSet.Status.PreviousDeployment)
+
+	if !tools.CompareDeploymentToSpec(&podSet.Spec.PodSetLogger, &podSet.Status.CurrentDeployment) &&
 		(!isPreviousEqualSpec ||
 			(isPreviousEqualSpec && podSet.Status.PreviousDeployment.Err == "")) {
 
-		podSet.Status.PreviousDeployment = copyDeployment(&podSet.Status.CurrentDeployment)
+		podSet.Status.PreviousDeployment = tools.CopyDeployment(&podSet.Status.CurrentDeployment)
 
-		var cd = v1alpha1.Deployment{
-			Name:            podSet.Name,
-			Replicas:        podSet.Spec.Replicas,
-			Version:         podSet.Spec.Version,
-			ImageLocation:   podSet.Spec.ImageLocation,
-			ImagePullPolicy: podSet.Spec.ImagePullPolicy,
+		var cd = appv1alpha1.Deployment{
+			Name:            podSet.Spec.PodSetLogger.ImageName,
+			Replicas:        podSet.Spec.PodSetLogger.Replicas,
+			Version:         podSet.Spec.PodSetLogger.Version,
+			ImageLocation:   podSet.Spec.PodSetLogger.ImageLocation,
+			ImagePullPolicy: podSet.Spec.PodSetLogger.ImagePullPolicy,
 			Err:             "",
 		}
 		podSet.Status.CurrentDeployment = cd
@@ -140,7 +171,7 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 
 	// List all the pods owned by this PodSet instance at any level of version
 	labelsSet := labels.Set{
-		"app": podSet.Name,
+		"app": podSet.Status.CurrentDeployment.Name,
 	}
 
 	existingPods := &corev1.PodList{}
@@ -149,7 +180,7 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 	err = r.client.List(context.TODO(),
 		existingPods,
 		&client.ListOptions{
-			Namespace:     request.Namespace,
+			Namespace:     podSet.Spec.Namespace,
 			LabelSelector: labels.SelectorFromSet(labelsSet),
 		})
 	if err != nil {
@@ -181,15 +212,15 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 
 				if !containerStatus.Ready {
 					if containerStatus.State.Waiting != nil {
-						if containerStatus.State.Waiting.Reason != appv1alpha1.ContainerCreating {
+						if containerStatus.State.Waiting.Reason != utils.ContainerCreating {
 							reqLogger.Info("ROLLBACK to previous version", "podName", pod.GetName())
 
 							// Keep the version of the previous deployment
 							// Rollback the version
-							tmpDeployment := copyDeployment(&podSet.Status.PreviousDeployment)
+							tmpDeployment := tools.CopyDeployment(&podSet.Status.PreviousDeployment)
 
 							// The previous deployment because the current deployment with and err
-							previousDeployment := copyDeployment(&podSet.Status.CurrentDeployment)
+							previousDeployment := tools.CopyDeployment(&podSet.Status.CurrentDeployment)
 							previousDeployment.Err = containerStatus.State.Waiting.Reason
 							podSet.Status.PreviousDeployment = previousDeployment
 
@@ -225,7 +256,7 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 	if int32(len(existingPodNames)) < podSet.Status.CurrentDeployment.Replicas {
 		// create a new pod & Set the PodSet as the owner and controller.
 		reqLogger.Info("Adding a pod in the podset", "expected replicas", podSet.Status.CurrentDeployment.Replicas, "Pod.Names", existingPodNames)
-		pod := createNewPod(&podSet.Status.CurrentDeployment, podSet.Namespace)
+		pod := tools.CreatePodsetloggerDeployment(&podSet.Status.CurrentDeployment, podSet.Spec.Namespace)
 		if err := controllerutil.SetControllerReference(podSet, pod, r.scheme); err != nil {
 			reqLogger.Error(err, "unable to set owner reference on new pod")
 			return reconcile.Result{}, err
@@ -250,62 +281,48 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 		}
 	}
 
+	// Create the require service
+	reqLogger.Info(" ** CREATE THE REQUIRE SERVICE IF NOT FOUND ** ")
+	existingPodsetloggerService, podSetLoggerService := tools.GetPodsetloggerService(podSet)
+	err = r.client.Get(context.TODO(), types.NamespacedName{Name: podSetLoggerService.Name, Namespace: podSetLoggerService.Namespace}, existingPodsetloggerService)
+	if err != nil {
+		if errors.IsNotFound(err) {
+			reqLogger.Info("Create Service")
+			err = r.client.Create(context.TODO(), tools.CreatePodsetloggerService(podSet))
+			if err != nil {
+				return reconcile.Result{}, nil
+			}
+		}
+
+		// Requeue, but wait 5 second to hage time to create the service
+		t := time.Duration(5)
+		return reconcile.Result{RequeueAfter: time.Second * t}, err
+	}
+
+	// Check if the config map need to be updated
+	reqLogger.Info(" ** CHECK IF CONFIG NEED TO BE UPDATED ** ")
+	eq := reflect.DeepEqual(podSet.Spec.Watch, podSet.Status.Watch)
+
+	if !eq {
+		reqLogger.Info("Update the Config Map")
+		existingPodsetConfigMap.Data = podSetConfigMap.Data
+		err := r.client.Update(context.TODO(), existingPodsetConfigMap)
+		if err != nil {
+			reqLogger.Error(err, "failed to update the podSet")
+		} else {
+			reqLogger.Info("Config Map was updated")
+			podSet.Status.Watch = podSet.Spec.Watch
+			r.client.Status().Update(context.TODO(), podSet)
+
+			return reconcile.Result{Requeue: true}, nil
+		}
+	}
+
 	return reconcile.Result{Requeue: true}, nil
 }
 
-// Instantiate a new pod with the proper information.
-func createNewPod(currentDeployment *v1alpha1.Deployment, namespace string) *corev1.Pod {
-
-	labels := map[string]string{
-		"app":     currentDeployment.Name,
-		"version": currentDeployment.Version,
-	}
-	return &corev1.Pod{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      currentDeployment.Name + "-" + currentDeployment.Version + "-pod" + strconv.Itoa(rand.Intn(100)),
-			Namespace: namespace,
-			Labels:    labels,
-		},
-		Spec: corev1.PodSpec{
-			Containers: []corev1.Container{
-				{
-					Name:            currentDeployment.Name,
-					Image:           currentDeployment.ImageLocation + currentDeployment.Name + ":" + currentDeployment.Version,
-					ImagePullPolicy: corev1.PullPolicy(currentDeployment.ImagePullPolicy),
-				},
-			},
-		},
-	}
-}
-
+// Delete a given pod
 func deletePod(r *ReconcilePodSet, reqLogger *logr.Logger, pod *corev1.Pod) error {
 	(*reqLogger).Info("Deleting a pod", "Pod.Version", pod.GetLabels()["version"], "Pod.Name", pod.GetName())
 	return r.client.Delete(context.TODO(), pod)
-}
-
-// Compare if two deployment are the same
-func compareDeploymentToSpec(podSet *v1alpha1.PodSet, deployment *v1alpha1.Deployment) bool {
-
-	if podSet.Name != deployment.Name {
-		return false
-	}
-
-	return podSet.Spec.Version == deployment.Version &&
-		podSet.Spec.Replicas == deployment.Replicas &&
-		podSet.Spec.ImageLocation == deployment.ImageLocation &&
-		podSet.Spec.ImagePullPolicy == deployment.ImagePullPolicy
-}
-
-// Copy Deployment is a way to recreate a new deployment with the same values
-func copyDeployment(deployment *v1alpha1.Deployment) v1alpha1.Deployment {
-	var newDeployment = v1alpha1.Deployment{
-		Name:            deployment.Name,
-		Replicas:        deployment.Replicas,
-		Version:         deployment.Version,
-		ImageLocation:   deployment.ImageLocation,
-		ImagePullPolicy: deployment.ImagePullPolicy,
-		Err:             deployment.Err,
-	}
-
-	return newDeployment
 }

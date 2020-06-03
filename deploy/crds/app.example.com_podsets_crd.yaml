@@ -9,7 +9,7 @@ spec:
     listKind: PodSetList
     plural: podsets
     singular: podset
-  scope: Namespaced
+  scope: Cluster
   subresources:
     status: {}
   validation:
@@ -31,34 +31,102 @@ spec:
         spec:
           description: PodSetSpec defines the desired state of PodSet
           properties:
-            imageLocation:
+            namespace:
               type: string
-            imagePullPolicy:
-              type: string
-            replicas:
-              format: int32
-              type: integer
-            version:
-              type: string
+            podsetlogger-deployment-spec:
+              description: Podsetlogger contain the value necessary to make a deployment
+              properties:
+                imagelocation:
+                  type: string
+                imagename:
+                  type: string
+                imagepullpolicy:
+                  type: string
+                replicas:
+                  format: int32
+                  type: integer
+                version:
+                  type: string
+              required:
+              - imagelocation
+              - imagename
+              - imagepullpolicy
+              - replicas
+              - version
+              type: object
+            podsetlogger-service-spec:
+              description: PodSetloggerService spec
+              properties:
+                ports:
+                  description: Ports spec
+                  properties:
+                    port:
+                      format: int32
+                      type: integer
+                    targetport:
+                      format: int32
+                      type: integer
+                  required:
+                  - port
+                  - targetport
+                  type: object
+                selectors:
+                  items:
+                    description: Selectors spec
+                    properties:
+                      name:
+                        type: string
+                      value:
+                        type: string
+                    required:
+                    - name
+                    - value
+                    type: object
+                  type: array
+                servicename:
+                  type: string
+                servicetype:
+                  description: Service Type string describes ingress methods for a
+                    service
+                  type: string
+              required:
+              - ports
+              - selectors
+              - servicename
+              - servicetype
+              type: object
+            watch:
+              items:
+                description: Watch element
+                properties:
+                  name:
+                    type: string
+                  value:
+                    type: string
+                required:
+                - name
+                - value
+                type: object
+              type: array
           required:
-          - imageLocation
-          - imagePullPolicy
-          - replicas
-          - version
+          - namespace
+          - podsetlogger-deployment-spec
+          - podsetlogger-service-spec
+          - watch
           type: object
         status:
           description: PodSetStatus defines the observed state of PodSet
           properties:
-            currentDeployement:
+            currentdeployement:
               description: Deployment contain the value necessary to make a deployment
               properties:
                 error:
                   type: string
-                imageLocation:
+                imagelocation:
+                  type: string
+                imagpullpolicy:
                   type: string
                 name:
-                  type: string
-                pullPolicy:
                   type: string
                 replicas:
                   format: int32
@@ -67,26 +135,26 @@ spec:
                   type: string
               required:
               - error
-              - imageLocation
+              - imagelocation
+              - imagpullpolicy
               - name
-              - pullPolicy
               - replicas
               - version
               type: object
-            podNames:
+            podnames:
               items:
                 type: string
               type: array
-            previousDeployement:
+            previousdeployement:
               description: Deployment contain the value necessary to make a deployment
               properties:
                 error:
                   type: string
-                imageLocation:
+                imagelocation:
+                  type: string
+                imagpullpolicy:
                   type: string
                 name:
-                  type: string
-                pullPolicy:
                   type: string
                 replicas:
                   format: int32
@@ -95,12 +163,25 @@ spec:
                   type: string
               required:
               - error
-              - imageLocation
+              - imagelocation
+              - imagpullpolicy
               - name
-              - pullPolicy
               - replicas
               - version
               type: object
+            watch:
+              items:
+                description: Watch element
+                properties:
+                  name:
+                    type: string
+                  value:
+                    type: string
+                required:
+                - name
+                - value
+                type: object
+              type: array
           type: object
       type: object
   version: v1alpha1

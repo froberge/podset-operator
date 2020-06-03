@@ -1,4 +1,4 @@
-package v1alpha1
+package utils
 
 // ContainerWaitingReason is a label for the reason a container is in waiting state
 type ContainerWaitingReason = string

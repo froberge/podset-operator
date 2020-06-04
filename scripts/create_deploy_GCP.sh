@@ -20,4 +20,4 @@ kubectl apply -f ../deploy/role_binding.yaml
 # This command need to be activated if you want to deploy the operator into the cluster.
 # To run the operator locally leave this comment
 #echo "Deploy the CRD"
-#kubectl apply -f deploy/operator.yamlkubectl apply -f ../deploy/operator.yaml
+kubectl apply -f deploy/operator.yamlkubectl apply -f ../deploy/operator.yaml

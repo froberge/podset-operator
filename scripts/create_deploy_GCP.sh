@@ -1,6 +1,11 @@
+# Build the operator images & push it to the registry
+#echo "Building and push the operator image"
+#op-sdk build gcr.io/tools-poc/podset-operator
+#docker push gcr.io/tools-poc/podset-operator
+
 # Create the GCP cluster
 echo "Create the GCP cluster"
-gcloud container clusters create [ENTER CLUSTER NAME HERE] --zone northamerica-northeast1-a
+gcloud container clusters create test-operator-fr --zone northamerica-northeast1-a
 
 # Create the require namespace
 echo "Create the required namespace"
@@ -17,7 +22,5 @@ kubectl apply -f deploy/role.yaml
 kubectl apply -f deploy/role_binding.yaml
 
 # deploy the custom resources
-# This command need to be activated if you want to deploy the operator into the cluster.
-# To run the operator locally leave this commented.
 #echo "Deploythe CRD"
-#kubectl apply -f deploy/operator.yaml
+kubectl apply -f deploy/operator.yaml

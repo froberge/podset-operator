@@ -1,6 +1,6 @@
 # Create the GCP cluster
 echo "Create the GCP cluster"
-gcloud container clusters create test-operator-fr --zone northamerica-northeast1-a
+gcloud container clusters create [ENTER CLUSTER NAME HERE] --zone [ENTER THE ZONE]
 
 # Create the require namespace
 echo "Create the required namespace"

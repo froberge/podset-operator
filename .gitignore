@@ -1,6 +1,6 @@
 ## Specifiy projec files
 __debug_bin
-/scripts/
+scripts/*
 # Temporary Build Files
 build/_output
 build/_test

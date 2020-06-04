@@ -77,3 +77,5 @@ tags
 # End of https://www.gitignore.io/api/go,vim,emacs,visualstudiocode
 ## specifiy projec files
 __debug_bin
+## Specific project files
+#scripts/

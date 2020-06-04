@@ -9,7 +9,6 @@ import (
 	utils "operator-framework/podset-operator/cmd/utils"
 	appv1alpha1 "operator-framework/podset-operator/pkg/apis/app/v1alpha1"
 
-	"github.com/go-logr/logr"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/labels"
@@ -124,7 +123,7 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 
 	if err != nil {
 		if errors.IsNotFound(err) {
-			reqLogger.Info("Create Config Map")
+			reqLogger.Info("Create the PodSet Config Map")
 			err = r.client.Create(context.TODO(), podSetConfigMap)
 			if err != nil {
 				return reconcile.Result{}, err
@@ -198,7 +197,8 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 
 		// Check the version running, if not right version delete the pod
 		if pod.GetLabels()["version"] != podSet.Status.CurrentDeployment.Version {
-			err := deletePod(r, &reqLogger, &pod)
+			reqLogger.Info("Deleting a pod", "Pod.Version", pod.GetLabels()["version"], "Pod.Name", pod.GetName())
+			err := r.client.Delete(context.TODO(), &pod)
 			if err != nil {
 				reqLogger.Error(err, "failed to delete a pod with previous version")
 				return reconcile.Result{}, err
@@ -238,13 +238,11 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 		}
 	}
 
-	reqLogger.Info("Checking podset - ", "expected replicas", podSet.Status.CurrentDeployment.Replicas, "Pod.Names", existingPodNames)
-
 	// Scale down number of replicas if to many node.
 	if int32(len(existingPodNames)) > podSet.Status.CurrentDeployment.Replicas {
 		// Delete a pod since their is to many
 		reqLogger.Info("Deleting a pod in the podset", "expecting replicas", podSet.Status.CurrentDeployment.Replicas, "Pod.Names", existingPodNames)
-		err = deletePod(r, &reqLogger, &existingPods.Items[0])
+		err = r.client.Delete(context.TODO(), &existingPods.Items[0])
 
 		if err != nil {
 			reqLogger.Error(err, "failed to delete a pod with previous version")
@@ -282,29 +280,27 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 	}
 
 	// Create the require service
-	reqLogger.Info(" ** CREATE THE REQUIRE SERVICE IF NOT FOUND ** ")
 	existingPodsetloggerService, podSetLoggerService := tools.GetPodsetloggerService(podSet)
 	err = r.client.Get(context.TODO(), types.NamespacedName{Name: podSetLoggerService.Name, Namespace: podSetLoggerService.Namespace}, existingPodsetloggerService)
 	if err != nil {
 		if errors.IsNotFound(err) {
-			reqLogger.Info("Create Service")
+			reqLogger.Info("Create the PodSet Service")
 			err = r.client.Create(context.TODO(), tools.CreatePodsetloggerService(podSet))
 			if err != nil {
 				return reconcile.Result{}, nil
 			}
 		}
 
-		// Requeue, but wait 5 second to hage time to create the service
+		// Requeue, but wait 5 second to have time to create the service
 		t := time.Duration(5)
 		return reconcile.Result{RequeueAfter: time.Second * t}, err
 	}
 
 	// Check if the config map need to be updated
-	reqLogger.Info(" ** CHECK IF CONFIG NEED TO BE UPDATED ** ")
 	eq := reflect.DeepEqual(podSet.Spec.Watch, podSet.Status.Watch)
 
 	if !eq {
-		reqLogger.Info("Update the Config Map")
+		reqLogger.Info("Update the PodSet Config Map")
 		existingPodsetConfigMap.Data = podSetConfigMap.Data
 		err := r.client.Update(context.TODO(), existingPodsetConfigMap)
 		if err != nil {
@@ -319,10 +315,4 @@ func (r *ReconcilePodSet) Reconcile(request reconcile.Request) (reconcile.Result
 	}
 
 	return reconcile.Result{Requeue: true}, nil
-}
-
-// Delete a given pod
-func deletePod(r *ReconcilePodSet, reqLogger *logr.Logger, pod *corev1.Pod) error {
-	(*reqLogger).Info("Deleting a pod", "Pod.Version", pod.GetLabels()["version"], "Pod.Name", pod.GetName())
-	return r.client.Delete(context.TODO(), pod)
 }

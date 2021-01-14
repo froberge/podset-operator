@@ -1,0 +1,13 @@
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: podset-operator-group
+  labels:
+    name: podset-operator-group
+---
+kind: Namespace
+apiVersion: v1
+metadata:
+  name: monitoring
+  labels:
+    name: monitoring

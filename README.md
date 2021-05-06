@@ -50,4 +50,4 @@ This operator is watching 3 types of ressources.
 
 
 ## Authors
-[Felix Roberge](https://github.com/froberge-cloudOps) 
+[Felix Roberge](https://github.com/roberge.felix@gmail.com) 
